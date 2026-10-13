@@ -1,0 +1,61 @@
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright (c) 2026 Andrei Baranov (84softworks). Licensed under the Business Source License 1.1 - see LICENSE.
+#
+# Every site-specific value comes from the environment (.env on the host, read by docker compose). Nothing secret
+# is defaulted here: a missing PF_DB_PASSWORD / PF_JWT_SECRET / PF_PUBLIC_BASE_URL / PF_ADMIN_USERS fails the start.
+spring:
+  application:
+    name: pathfinder-server
+  datasource:
+    url: ${PF_DB_URL:jdbc:postgresql://127.0.0.1:5432/pathfinder}
+    username: ${PF_DB_USER:pathfinder}
+    password: ${PF_DB_PASSWORD}
+  jpa:
+    hibernate:
+      # The schema is owned by Flyway; Hibernate only checks that entities match it
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    locations: classpath:db/migration
+
+server:
+  # Bound to loopback by default: the edge proxy and the console's nginx reach it on the same host
+  address: ${PF_SERVER_BIND:127.0.0.1}
+  port: ${PF_SERVER_PORT:8080}
+  # TLS terminates on the edge proxy, so the scheme and the host the client used arrive in X-Forwarded-*
+  forward-headers-strategy: framework
+
+management:
+  endpoints:
+    web:
+      base-path: /system
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+# Site-local policy of this deployment; see the classes in config/ for what each value does.
+pathfinder:
+  public:
+    # Address printed into every QR code: the code encodes <base-url>/r/<slug>. Must be the name the server
+    # answers on from the internet (https://pathfinder.example.com) - it is baked into printed codes.
+    base-url: ${PF_PUBLIC_BASE_URL}
+  cors:
+    # Browser origins allowed to call the API cross-site, comma-separated (e.g. https://console.example.com).
+    # Empty = none, which is correct whenever the console is served same-origin through its own nginx.
+    allowed-origins: ${PF_CORS_ORIGINS:}
+  console:
+    # HMAC key of the console's tokens, at least 32 characters. Changing it logs everybody out.
+    token-secret: ${PF_JWT_SECRET}
+    access-token-ttl: ${PF_ACCESS_TOKEN_TTL:PT15M}
+    refresh-token-ttl: ${PF_REFRESH_TOKEN_TTL:P7D}
+    # Console users live in the environment: comma-separated "login:password" pairs per role. The server creates or
+    # updates these accounts on every start and disables the ones that disappeared from the list.
+    admin-users: ${PF_ADMIN_USERS}
+    viewer-users: ${PF_VIEWER_USERS:}
+
+logging:
+  level:
+    com.ef_softworks: ${PF_LOG_LEVEL:INFO}

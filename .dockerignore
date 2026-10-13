@@ -1,0 +1,13 @@
+.git
+.github
+.gradle
+.idea
+.kotlin
+build
+out
+*.iml
+.env
+*.md
+.local
+docker-compose.yml
+.env.example

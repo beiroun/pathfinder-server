@@ -1,0 +1,79 @@
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright (c) 2026 Andrei Baranov (84softworks). Licensed under the Business Source License 1.1 - see LICENSE.
+# pathfinder-server - local build
+# ===============================
+# Builds the server image from this working tree and runs it with its own PostgreSQL, for development on a
+# laptop. Not the deployment: that is the umbrella repository (pathfinder/deployment), which runs published
+# images with host networking and real secrets. Here everything listens on loopback and the database lives in
+# ./.local (gitignored), so a wipe is `rm -rf .local`.
+#
+# Secrets have no defaults in this file: copy .env.example to .env (gitignored) and fill it, compose refuses to
+# start while one of them is missing.
+#
+#   cp .env.example .env                 then fill the secrets (openssl rand -hex 16 / -hex 32)
+#   docker compose up --build            build the jar in Docker and start postgres + server
+#   docker compose up --build -d         the same, detached; logs: docker compose logs -f server
+#   docker compose down                  stop; the database directory stays
+#   rm -rf .local && docker compose up   start from an empty database (migrations run again)
+#
+# Then: http://127.0.0.1:8080/api/v1/info, console login with a pair from PF_ADMIN_USERS, `npm run dev` in
+# pathfinder-console proxies /api here. psql: psql -h 127.0.0.1 -U pathfinder pathfinder (password: PF_DB_PASSWORD).
+#
+# Every PF_* value can be overridden from the shell or the .env file next to this file.
+
+name: pathfinder-local
+
+services:
+  postgres:
+    image: postgres:18
+    container_name: pathfinder-local-postgres
+    environment:
+      POSTGRES_DB: pathfinder
+      POSTGRES_USER: pathfinder
+      POSTGRES_PASSWORD: "${PF_DB_PASSWORD:?set PF_DB_PASSWORD in .env}"
+      TZ: "${PF_TZ:-UTC}"
+    ports:
+      - "127.0.0.1:5432:5432"                # psql and IDE database tools from the laptop
+    volumes:
+      # Bind mount, not a named volume: the data is visible as files and dies with `rm -rf .local`.
+      # postgres:18 keeps PGDATA at /var/lib/postgresql/18/docker; the parent is what the image declares.
+      - ./.local/postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pathfinder -d pathfinder"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  server:
+    build:
+      context: .
+      args:
+        APP_VERSION: "${APP_VERSION:-0.0.0-local}"   # what GET /api/v1/info reports
+    image: pathfinder-server:local
+    container_name: pathfinder-local-server
+    environment:
+      PF_DB_URL: "jdbc:postgresql://postgres:5432/pathfinder"
+      PF_DB_USER: "pathfinder"
+      PF_DB_PASSWORD: "${PF_DB_PASSWORD:?set PF_DB_PASSWORD in .env}"
+      # 0.0.0.0 inside the container, published on loopback only (see ports): the laptop reaches it as 127.0.0.1:8080
+      PF_SERVER_BIND: "0.0.0.0"
+      PF_SERVER_PORT: "8080"
+      # Printed into every code made here; a laptop address, so such codes only work on this laptop
+      PF_PUBLIC_BASE_URL: "${PF_PUBLIC_BASE_URL:-http://127.0.0.1:8080}"
+      # Vite's dev server proxies /api to this port, so the console is same-origin and needs no CORS
+      PF_CORS_ORIGINS: "${PF_CORS_ORIGINS:-}"
+      PF_LOG_LEVEL: "${PF_LOG_LEVEL:-DEBUG}"
+      # Console access: at least 32 characters for the secret, 8 for every password, as the server requires
+      PF_JWT_SECRET: "${PF_JWT_SECRET:?set PF_JWT_SECRET in .env}"
+      PF_ADMIN_USERS: "${PF_ADMIN_USERS:?set PF_ADMIN_USERS in .env}"
+      PF_VIEWER_USERS: "${PF_VIEWER_USERS:-}"
+      PF_ACCESS_TOKEN_TTL: "${PF_ACCESS_TOKEN_TTL:-PT15M}"
+      PF_REFRESH_TOKEN_TTL: "${PF_REFRESH_TOKEN_TTL:-P7D}"
+      TZ: "${PF_TZ:-UTC}"
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
