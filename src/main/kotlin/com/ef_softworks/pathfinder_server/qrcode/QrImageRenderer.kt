@@ -42,26 +42,35 @@ class QrImageRenderer {
     }
 
     private fun renderSvg(content: String, size: Int): String {
-        val matrix = encode(content, size)
-        val width = matrix.width
-        val height = matrix.height
+        // Size 0 keeps ZXing from upscaling: one bit per module, quiet zone included. Encoded at the target size,
+        // every module becomes a block of pixels and the path grows to hundreds of thousands of 1x1 squares,
+        // which design tools like Figma choke on. The SVG scales to the requested size via width/height instead.
+        val modules = encode(content, 0)
+        val moduleCount = modules.width
 
         val path = StringBuilder()
-        for (y in 0 until height) {
-            for (x in 0 until width) {
-                if (matrix.get(x, y)) {
-                    path.append("M").append(x).append(" ").append(y).append("h1v1h-1z")
+        for (y in 0 until moduleCount) {
+            var x = 0
+            while (x < moduleCount) {
+                if (!modules.get(x, y)) {
+                    x++
+                    continue
                 }
+                val runStart = x
+                while (x < moduleCount && modules.get(x, y)) x++
+                val runLength = x - runStart
+                path.append("M").append(runStart).append(" ").append(y)
+                    .append("h").append(runLength).append("v1h-").append(runLength).append("z")
             }
         }
 
         return buildString {
             append("""<?xml version="1.0" encoding="UTF-8"?>""")
             append(
-                """<svg xmlns="http://www.w3.org/2000/svg" width="$width" height="$height" """ +
-                    """viewBox="0 0 $width $height" shape-rendering="crispEdges">"""
+                """<svg xmlns="http://www.w3.org/2000/svg" width="$size" height="$size" """ +
+                    """viewBox="0 0 $moduleCount $moduleCount" shape-rendering="crispEdges">"""
             )
-            append("""<rect width="$width" height="$height" fill="#ffffff"/>""")
+            append("""<rect width="$moduleCount" height="$moduleCount" fill="#ffffff"/>""")
             append("""<path fill="#000000" d="$path"/>""")
             append("</svg>")
         }
