@@ -57,6 +57,7 @@ class SecurityConfig {
                 authorize("/error", permitAll)
 
                 authorize(HttpMethod.GET, "/api/v1/qr/**", hasAnyRole(ConsoleRole.ADMIN.name, ConsoleRole.VIEWER.name))
+                authorize(HttpMethod.GET, "/api/v1/stats/**", hasAnyRole(ConsoleRole.ADMIN.name, ConsoleRole.VIEWER.name))
                 authorize("/api/v1/qr/**", hasRole(ConsoleRole.ADMIN.name))
                 authorize(anyRequest, denyAll)
             }
